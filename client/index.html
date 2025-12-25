@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud IDE | Self-Hosted</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <header class="navbar">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <h1>My Basement<span>IDE</span></h1>
+            </div>
+            <div class="actions">
+                <select id="language-select">
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript / Node.js</option>
+                </select>
+                <button id="run-btn" class="btn-primary">
+                    <span class="icon">▶</span> Run
+                </button>
+            </div>
+        </header>
+
+        <main class="editor-shell">
+            <div id="editor-container"></div>
+            <div class="resizer" id="resizer"></div>
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <span>Terminal</span>
+                    <button id="clear-btn">Clear</button>
+                </div>
+                <div id="output" class="terminal-content">
+                    <div class="prompt">Ready to execute...</div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- monaco editor for now -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
