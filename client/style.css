@@ -1,14 +1,9 @@
-/* ===============================
-   VS Code "Dark Modern" 
-   =============================== */
-
 :root {
     --bg-primary: #1e1e1e;
     --bg-activity-bar: #333333;
     --bg-sidebar: #252526;
     --bg-panel: #1e1e1e;
     --bg-status-bar: #007acc;
-    /* or #007acc for blue, #68217a for purple loop */
     --bg-status-bar-remote: #16825d;
     --bg-tab-active: #1e1e1e;
     --bg-tab-inactive: #2d2d30;
@@ -22,7 +17,6 @@
 
     --text-primary: #cccccc;
     --text-secondary: #969696;
-    /* comments/muted */
     --text-bright: #ffffff;
     --icon-foreground: #c5c5c5;
     --icon-hover: #ffffff;
@@ -49,19 +43,16 @@ body {
     flex-direction: column;
 }
 
-/* ===============================
-   Workbench Layout
-   =============================== */
+
 
 .workbench {
     display: flex;
     flex: 1;
     overflow: hidden;
     position: relative;
-    /* Grid: Activity Bar | Sidebar | Editor Group */
 }
 
-/* --- Activity Bar --- */
+
 .activity-bar {
     width: 48px;
     background-color: var(--bg-activity-bar);
@@ -116,14 +107,13 @@ body {
     line-height: 1;
 }
 
-/* --- Sidebar --- */
+
 .sidebar {
     width: 250px;
     background-color: var(--bg-sidebar);
     display: flex;
     flex-direction: column;
     border-right: 1px solid #1e1e1e;
-    /* Slight separate from activity bar visually? VS Code actually merges colors sometimes */
 }
 
 .sidebar-title {
@@ -242,13 +232,12 @@ body {
 .folder-item .fa {
     margin-right: 6px;
     color: var(--text-secondary);
-    /* Icon color */
     width: 16px;
     text-align: center;
     font-size: 14px;
 }
 
-/* --- Sidebar Views --- */
+
 .search-container,
 .scm-container,
 .extensions-container {
@@ -314,7 +303,7 @@ body {
     color: var(--text-secondary);
 }
 
-/* --- Editor Group Container --- */
+
 .editor-group-container {
     flex: 1;
     display: flex;
@@ -323,7 +312,7 @@ body {
     min-width: 0;
 }
 
-/* Tabs */
+
 .editors-header {
     height: 35px;
     background-color: var(--bg-tab-inactive);
@@ -343,7 +332,6 @@ body {
     padding: 0 10px;
     background-color: var(--bg-tab-inactive);
     border-right: 1px solid var(--bg-primary);
-    /* Separator */
     cursor: pointer;
     min-width: 120px;
     max-width: 200px;
@@ -355,7 +343,6 @@ body {
     background-color: var(--bg-tab-active);
     color: var(--text-bright);
     border-top: 1px solid var(--focus-border);
-    /* Top highlight */
 }
 
 .tab-icon {
@@ -424,7 +411,7 @@ body {
     color: var(--icon-hover);
 }
 
-/* Breadcrumbs */
+
 .breadcrumbs {
     height: 22px;
     display: flex;
@@ -456,20 +443,17 @@ body {
     font-size: 10px !important;
 }
 
-/* Monaco Container */
+
 .monaco-container {
     flex: 1;
     position: relative;
     overflow: hidden;
 }
 
-/* ===============================
-   Panel Container (Terminal)
-   =============================== */
+
 
 .panel-container {
     height: 240px;
-    /* Default height */
     border-top: 1px solid var(--border-color);
     background-color: var(--bg-panel);
     display: flex;
@@ -554,9 +538,7 @@ body {
     overflow-y: auto;
 }
 
-/* ===============================
-   Status Bar
-   =============================== */
+
 
 .status-bar {
     height: 22px;
@@ -600,12 +582,9 @@ body {
     width: 34px;
     justify-content: center;
     margin-left: -8px;
-    /* Offset parent padding */
 }
 
-/* ===============================
-   Quick Input Widget (Command Palette)
-   =============================== */
+
 
 .quick-input-widget {
     position: fixed;
@@ -662,7 +641,7 @@ body {
     text-align: center;
 }
 
-/* Icons fix */
+
 .fas,
 .fa {
     display: inline-block;
@@ -670,4 +649,105 @@ body {
     font-variant: normal;
     text-rendering: auto;
     line-height: 1;
+}
+
+
+.login-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: var(--bg-primary);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.login-card {
+    background-color: var(--bg-sidebar);
+    width: 380px;
+    padding: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.login-header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.login-header h2 {
+    font-size: 24px;
+    color: var(--text-bright);
+    margin: 0;
+}
+
+.login-header p {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.form-group label {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.form-group input {
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 10px 12px;
+    font-size: 14px;
+    border-radius: 4px;
+    outline: none;
+}
+
+.form-group input:focus {
+    border-color: var(--focus-border);
+}
+
+.login-button {
+    background-color: var(--bg-status-bar);
+    color: white;
+    border: none;
+    padding: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 8px;
+}
+
+.login-button:hover {
+    background-color: #0089e0;
+}
+
+.login-error {
+    color: #f48771;
+    font-size: 13px;
+    text-align: center;
+    background-color: rgba(244, 135, 113, 0.1);
+    padding: 8px;
+    border-radius: 4px;
 }

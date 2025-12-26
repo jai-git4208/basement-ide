@@ -1,18 +1,15 @@
-// main.js - Basement IDE Client
-
-// --- Global State ---
 let editor;
 let socket;
 let terminal;
 let fitAddon;
 let sessionId = generateSessionId();
 let currentFile = 'scratch.py';
-let openFiles = new Map(); // filepath -> content
+let openFiles = new Map();
 let activeTab = 'scratch.py';
 
-// --- Initialize on Load ---
+
 window.addEventListener('load', () => {
-    // Check if required libraries are loaded
+
     if (typeof io === 'undefined') {
         console.error('Socket.io not loaded!');
         return;
@@ -27,18 +24,75 @@ window.addEventListener('load', () => {
     }
 
     // Initialize components
-    initMonaco();
-    initTerminal();
-    initFileExplorer();
+    checkAuth();
     initEventListeners();
 });
 
-// --- Session ID ---
+
+function checkAuth() {
+    const sessionToken = localStorage.getItem('basement_session');
+    if (!sessionToken) {
+        showLogin();
+    } else {
+        hideLogin();
+        initIDE();
+    }
+}
+
+function showLogin() {
+    document.getElementById('login-overlay').style.display = 'flex';
+    document.querySelector('.workbench').style.display = 'none';
+    document.querySelector('.panel-container').style.display = 'none';
+    document.querySelector('.status-bar').style.display = 'none';
+}
+
+function hideLogin() {
+    document.getElementById('login-overlay').style.display = 'none';
+    document.querySelector('.workbench').style.display = 'flex';
+    document.querySelector('.panel-container').style.display = 'flex';
+    document.querySelector('.status-bar').style.display = 'flex';
+}
+
+function initIDE() {
+    if (editor) return;
+    initMonaco();
+    initTerminal();
+    initFileExplorer();
+}
+
+async function handleLogin() {
+    const user = document.getElementById('username').value;
+    const pass = document.getElementById('password').value;
+    const errorEl = document.getElementById('login-error');
+
+    try {
+        const response = await fetch('http://localhost:3000/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user, pass })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            localStorage.setItem('basement_session', data.token);
+            hideLogin();
+            initIDE();
+        } else {
+            errorEl.textContent = data.error || 'Invalid credentials';
+            errorEl.style.display = 'block';
+        }
+    } catch (err) {
+        errorEl.textContent = 'Server error. Please try again.';
+        errorEl.style.display = 'block';
+    }
+}
+
+
 function generateSessionId() {
     return 'session_' + Math.random().toString(36).substr(2, 9);
 }
 
-// --- Monaco Editor Setup ---
+
 function initMonaco() {
     require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
 
@@ -54,28 +108,31 @@ function initMonaco() {
             padding: { top: 16 }
         });
 
-        // Save current file content to memory
+
         openFiles.set(currentFile, editor.getValue());
 
-        // Auto-save on change
+
         editor.onDidChangeModelContent(() => {
             if (currentFile) {
                 openFiles.set(currentFile, editor.getValue());
             }
         });
 
-        // Keyboard shortcut: Cmd/Ctrl+S to save
+
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             saveCurrentFile();
         });
     });
 }
 
-// --- Terminal Setup ---
-function initTerminal() {
-    socket = io('http://localhost:3000');
 
-    // Create xterm instance
+function initTerminal() {
+    const token = localStorage.getItem('basement_session');
+    socket = io('http://localhost:3000', {
+        auth: { token }
+    });
+
+
     terminal = new Terminal({
         cursorBlink: true,
         fontSize: 14,
@@ -92,10 +149,10 @@ function initTerminal() {
     terminal.open(document.getElementById('terminal'));
     fitAddon.fit();
 
-    // Request terminal creation
+
     socket.emit('create-terminal', { sessionId });
 
-    // Handle terminal output
+
     socket.on('terminal-output', (data) => {
         terminal.write(data);
     });
@@ -109,12 +166,12 @@ function initTerminal() {
         terminal.write('\r\n\x1b[1;31m[Terminal exited]\x1b[0m\r\n');
     });
 
-    // Send input to terminal
+
     terminal.onData((data) => {
         socket.emit('terminal-input', { termId: sessionId, input: data });
     });
 
-    // Resize terminal
+
     window.addEventListener('resize', () => {
         fitAddon.fit();
         socket.emit('terminal-resize', {
@@ -125,14 +182,15 @@ function initTerminal() {
     });
 }
 
-// --- File Explorer ---
+
 function initFileExplorer() {
     refreshFileList();
 }
 
 async function refreshFileList() {
+    const token = localStorage.getItem('basement_session');
     try {
-        const response = await fetch(`http://localhost:3000/api/files/list?sessionId=${sessionId}`);
+        const response = await fetch(`http://localhost:3000/api/files/list?sessionId=${sessionId}&token=${token}`);
         const data = await response.json();
 
         const fileTree = document.getElementById('file-tree');
@@ -143,10 +201,10 @@ async function refreshFileList() {
             fileTree.innerHTML = '<div class="file-item" style="padding-left: 20px; font-style: italic;">No files found</div>';
         }
 
-        // Add click listeners to files
+
         document.querySelectorAll('.file-item').forEach(el => {
             el.addEventListener('click', () => {
-                // Visual selection
+
                 document.querySelectorAll('.file-item').forEach(i => i.classList.remove('selected'));
                 el.classList.add('selected');
 
@@ -155,7 +213,7 @@ async function refreshFileList() {
             });
         });
 
-        // Toggle folders (simple implementation)
+
         const explorer = document.getElementById('file-tree');
         if (!explorer) return;
 
@@ -224,17 +282,18 @@ function getFileIconClass(filename) {
     return map[ext] || 'fas fa-file';
 }
 
-// --- File Operations ---
+
 async function openFile(filepath) {
+    const token = localStorage.getItem('basement_session');
     try {
-        // Check if already open in memory
+
         if (openFiles.has(filepath)) {
             switchToFile(filepath);
             return;
         }
 
-        // Fetch from server
-        const response = await fetch(`http://localhost:3000/api/files/read?sessionId=${sessionId}&filepath=${encodeURIComponent(filepath)}`);
+
+        const response = await fetch(`http://localhost:3000/api/files/read?sessionId=${sessionId}&filepath=${encodeURIComponent(filepath)}&token=${token}`);
         const data = await response.json();
 
         if (data.content !== undefined) {
@@ -253,6 +312,7 @@ async function saveCurrentFile() {
 
     const content = editor.getValue();
 
+    const token = localStorage.getItem('basement_session');
     try {
         const response = await fetch('http://localhost:3000/api/files/save', {
             method: 'POST',
@@ -260,7 +320,8 @@ async function saveCurrentFile() {
             body: JSON.stringify({
                 sessionId,
                 filepath: currentFile,
-                content
+                content,
+                token
             })
         });
 
@@ -281,20 +342,22 @@ function newFile() {
     openFiles.set(filename, '');
     addTab(filename);
     switchToFile(filename);
-    saveCurrentFile(); // Create empty file on server
+    saveCurrentFile();
 }
 
 async function newFolder() {
     const foldername = prompt('Enter folder name:');
     if (!foldername) return;
 
+    const token = localStorage.getItem('basement_session');
     try {
         const response = await fetch('http://localhost:3000/api/files/mkdir', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 sessionId,
-                filepath: foldername
+                filepath: foldername,
+                token
             })
         });
 
@@ -323,11 +386,11 @@ function collapseAll() {
     });
 }
 
-// --- Tab Management ---
+
 function addTab(filepath) {
     const tabs = document.getElementById('tabs');
 
-    // Check if tab already exists
+
     if (document.querySelector(`.tab[data-file="${filepath}"]`)) {
         return;
     }
@@ -359,16 +422,16 @@ function addTab(filepath) {
 function switchToFile(filepath) {
     currentFile = filepath;
 
-    // Update tabs visual state
+
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     const tab = document.querySelector(`.tab[data-file="${filepath}"]`);
     if (tab) tab.classList.add('active');
 
-    // Update editor content
+
     const content = openFiles.get(filepath) || '';
     editor.setValue(content);
 
-    // Update language
+
     const ext = filepath.split('.').pop();
     const langMap = {
         py: 'python',
@@ -384,10 +447,10 @@ function switchToFile(filepath) {
     const lang = langMap[ext] || 'plaintext';
     monaco.editor.setModelLanguage(editor.getModel(), lang);
 
-    // Update Status Bar
+
     document.getElementById('lang-status').textContent = lang.charAt(0).toUpperCase() + lang.slice(1);
 
-    // Update Breadcrumbs
+
     document.getElementById('breadcrumb-filename').textContent = filepath;
     document.getElementById('breadcrumb-icon').className = `${getFileIconClass(filepath)}`;
 }
@@ -411,7 +474,7 @@ function closeTab(filepath) {
     }
 }
 
-// --- Execution ---
+
 async function runCode() {
     if (!currentFile) {
         alert('Please create or open a file first.');
@@ -420,10 +483,11 @@ async function runCode() {
 
     const lang = monaco.editor.getModel(editor.getModel()).getLanguageId();
 
-    // Auto-save before running
+
     await saveCurrentFile();
 
-    // Use terminal to run code
+    const token = localStorage.getItem('basement_session');
+
     let command = '';
     const fileBasename = currentFile.split('/').pop();
 
@@ -458,7 +522,7 @@ async function runCode() {
 }
 
 function appendOutput(text, className) {
-    // Legacy output handler - now we use terminal primarily
+
     const outputPanel = document.getElementById('output');
     if (outputPanel) {
         const line = document.createElement('div');
@@ -469,13 +533,13 @@ function appendOutput(text, className) {
     }
 }
 
-// --- Event Listeners ---
+
 function initEventListeners() {
-    // Run Button (Icon)
+
     const runBtn = document.getElementById('run-btn');
     if (runBtn) runBtn.addEventListener('click', runCode);
 
-    // Sidebar Header Actions
+
     const newFileBtn = document.getElementById('new-file-icon');
     if (newFileBtn) newFileBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -500,7 +564,16 @@ function initEventListeners() {
         collapseAll();
     });
 
-    // Clear Terminal
+
+    const loginBtn = document.getElementById('login-btn');
+    if (loginBtn) loginBtn.addEventListener('click', handleLogin);
+
+
+    document.getElementById('password').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') handleLogin();
+    });
+
+
     const clearBtn = document.getElementById('clear-terminal-btn');
     if (clearBtn) clearBtn.addEventListener('click', () => {
         if (terminal) terminal.clear();
@@ -514,18 +587,18 @@ function initEventListeners() {
         });
     }
 
-    // Activity Bar switching
+
     document.querySelectorAll('.action-item').forEach(item => {
         item.addEventListener('click', () => {
             if (item.closest('.activity-top')) {
                 document.querySelectorAll('.activity-top .action-item').forEach(i => i.classList.remove('active'));
                 item.classList.add('active');
 
-                // Toggle views based on title or data-view
+
                 const title = (item.getAttribute('title') || '').toLowerCase();
                 const sidebar = document.querySelector('.sidebar');
 
-                // Hide all views first
+
                 document.querySelectorAll('.sidebar-content').forEach(v => v.style.display = 'none');
 
                 if (title.includes('explorer')) {
@@ -548,14 +621,14 @@ function initEventListeners() {
                     alert('Settings feature coming soon!');
                     if (sidebar) sidebar.style.display = 'none';
                 } else {
-                    // Hide sidebar for other views
+
                     if (sidebar) sidebar.style.display = 'none';
                 }
             }
         });
     });
 
-    // Search functionality
+
     const searchInput = document.getElementById('search-input');
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
@@ -568,8 +641,7 @@ function initEventListeners() {
                 return;
             }
 
-            // Flat-search files (we can iterate over openFiles or the tree)
-            // For now, let's just search the labels in the tree
+
             const fileItems = document.querySelectorAll('#explorer-view .file-item');
             results.innerHTML = '';
             fileItems.forEach(item => {
@@ -585,7 +657,7 @@ function initEventListeners() {
         });
     }
 
-    // Theme selector
+
     const themeSelector = document.getElementById('theme-selector');
     if (themeSelector) {
         themeSelector.addEventListener('change', (e) => {
@@ -595,7 +667,7 @@ function initEventListeners() {
         });
     }
 
-    // Panel Tabs
+
     document.querySelectorAll('.panel-tabs li').forEach(tab => {
         tab.addEventListener('click', () => {
             document.querySelectorAll('.panel-tabs li').forEach(t => t.classList.remove('active'));
@@ -607,8 +679,8 @@ function initEventListeners() {
             const map = {
                 'terminal': 'terminal',
                 'output': 'output',
-                'debug': 'output', // fallback
-                'problems': 'output' // fallback
+                'debug': 'output',
+                'problems': 'output'
             };
 
             const targetId = map[target];
@@ -620,7 +692,7 @@ function initEventListeners() {
         });
     });
 
-    // Panel Actions
+
     const newTerminalBtn = document.querySelector('.panel-actions i[title="New Terminal"]');
     if (newTerminalBtn) {
         newTerminalBtn.addEventListener('click', () => {
@@ -650,7 +722,7 @@ function initEventListeners() {
         });
     }
 
-    // Initialize Command Palette
+
     initCommandPalette();
 }
 
@@ -661,7 +733,7 @@ function initCommandPalette() {
 
     if (!palette || !input || !results) return;
 
-    // Define available commands
+
     const commands = [
         { id: 'new-file', label: 'New File', icon: 'fas fa-plus' },
         { id: 'save-file', label: 'Save File', icon: 'fas fa-save' },
@@ -690,7 +762,7 @@ function initCommandPalette() {
         });
     }
 
-    // Toggle Palette with Cmd+Shift+P / Ctrl+Shift+P
+
     window.addEventListener('keydown', (e) => {
         if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') {
             e.preventDefault();

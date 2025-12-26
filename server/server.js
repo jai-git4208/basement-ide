@@ -23,23 +23,44 @@ const port = 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// --- Configuration ---
+
+const VALID_CREDENTIALS = { user: 'jai', pass: 'jailovesavi' };
+const SESSION_TOKEN = 'basement_secret_token_123';
+
+function authMiddleware(req, res, next) {
+    const token = req.headers['authorization'] || req.query.token || req.body.token;
+    if (token === SESSION_TOKEN) {
+        return next();
+    }
+    res.status(401).json({ error: 'Unauthorized' });
+}
+
+app.post('/api/auth/login', (req, res) => {
+    const { user, pass } = req.body;
+    if (user === VALID_CREDENTIALS.user && pass === VALID_CREDENTIALS.pass) {
+        res.json({ success: true, token: SESSION_TOKEN });
+    } else {
+        res.status(401).json({ success: false, error: 'Invalid User ID or Password' });
+    }
+});
+
+
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const WORKSPACES_ROOT = path.join(PROJECT_ROOT, 'workspaces');
 
-// Ensure workspaces directory exists
+
 if (!fs.existsSync(WORKSPACES_ROOT)) {
     fs.mkdirSync(WORKSPACES_ROOT, { recursive: true });
 }
 
-// Serve static files from the client directory
+
 app.use(express.static(path.join(PROJECT_ROOT, 'client')));
 
-// --- Terminal Sessions ---
+
 const terminals = {};
 const terminalLogs = {};
 
-// Fallback class for when node-pty fails
+
 const { spawn: spawnCP } = require('child_process');
 
 class SpawnFallback {
@@ -64,7 +85,7 @@ class SpawnFallback {
         this.process.stdin.write(data);
     }
 
-    resize() { /* no-op */ }
+    resize() { }
 
     kill() {
         this.process.kill();
@@ -72,6 +93,12 @@ class SpawnFallback {
 }
 
 io.on('connection', (socket) => {
+    const token = socket.handshake.auth.token || socket.handshake.query.token;
+    if (token !== SESSION_TOKEN) {
+        console.log('Unauthorized socket connection attempt:', socket.id);
+        socket.disconnect();
+        return;
+    }
     console.log('Client connected:', socket.id);
 
     socket.on('create-terminal', (data) => {
@@ -83,7 +110,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Create workspace for this session
+
         const workspaceDir = path.join(WORKSPACES_ROOT, termId);
         if (!fs.existsSync(workspaceDir)) {
             fs.mkdirSync(workspaceDir, { recursive: true });
@@ -91,14 +118,13 @@ io.on('connection', (socket) => {
 
         let shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
 
-        // Verify shell exists, fallback to standard locations
+
         if (!fs.existsSync(shell)) {
             shell = process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
-            if (!fs.existsSync(shell)) shell = '/bin/sh'; // absolute fallback
+            if (!fs.existsSync(shell)) shell = '/bin/sh';
         }
 
-        // --- Soft Jail Implementation ---
-        // We use shell initialization to override 'cd' and set the environment.
+
         const initFile = path.join(workspaceDir, '.bashrc_jail');
         const isZsh = shell.includes('zsh');
 
@@ -194,13 +220,13 @@ alias cd='function _cd() {
 
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
-        // Optional: keep terminals alive or kill them
+
     });
 });
 
-// --- File Management API ---
 
-// Create workspace if it doesn't exist
+
+
 function ensureWorkspace(sessionId) {
     const workspaceDir = path.join(WORKSPACES_ROOT, sessionId);
     if (!fs.existsSync(workspaceDir)) {
@@ -209,8 +235,8 @@ function ensureWorkspace(sessionId) {
     return workspaceDir;
 }
 
-// List files in workspace
-app.get('/api/files/list', (req, res) => {
+
+app.get('/api/files/list', authMiddleware, (req, res) => {
     const { sessionId } = req.query;
     if (!sessionId) {
         return res.status(400).json({ error: 'sessionId required' });
@@ -255,8 +281,8 @@ app.get('/api/files/list', (req, res) => {
     }
 });
 
-// Read file content
-app.get('/api/files/read', (req, res) => {
+
+app.get('/api/files/read', authMiddleware, (req, res) => {
     const { sessionId, filepath } = req.query;
     if (!sessionId || !filepath) {
         return res.status(400).json({ error: 'sessionId and filepath required' });
@@ -265,7 +291,7 @@ app.get('/api/files/read', (req, res) => {
     const workspaceDir = ensureWorkspace(sessionId);
     const fullPath = path.join(workspaceDir, filepath);
 
-    // Security check: ensure file is within workspace
+
     if (!fullPath.startsWith(workspaceDir)) {
         return res.status(403).json({ error: 'Access denied' });
     }
@@ -278,8 +304,8 @@ app.get('/api/files/read', (req, res) => {
     }
 });
 
-// Create or update file
-app.post('/api/files/save', (req, res) => {
+
+app.post('/api/files/save', authMiddleware, (req, res) => {
     const { sessionId, filepath, content } = req.body;
     if (!sessionId || !filepath) {
         return res.status(400).json({ error: 'sessionId and filepath required' });
@@ -288,7 +314,7 @@ app.post('/api/files/save', (req, res) => {
     const workspaceDir = ensureWorkspace(sessionId);
     const fullPath = path.join(workspaceDir, filepath);
 
-    // Security check
+
     if (!fullPath.startsWith(workspaceDir)) {
         return res.status(403).json({ error: 'Access denied' });
     }
@@ -305,8 +331,8 @@ app.post('/api/files/save', (req, res) => {
     }
 });
 
-// Create directory
-app.post('/api/files/mkdir', (req, res) => {
+
+app.post('/api/files/mkdir', authMiddleware, (req, res) => {
     const { sessionId, filepath } = req.body;
     if (!sessionId || !filepath) {
         return res.status(400).json({ error: 'sessionId and filepath required' });
@@ -315,7 +341,7 @@ app.post('/api/files/mkdir', (req, res) => {
     const workspaceDir = ensureWorkspace(sessionId);
     const fullPath = path.join(workspaceDir, filepath);
 
-    // Security check
+
     if (!fullPath.startsWith(workspaceDir)) {
         return res.status(403).json({ error: 'Access denied' });
     }
@@ -330,8 +356,8 @@ app.post('/api/files/mkdir', (req, res) => {
     }
 });
 
-// Delete file
-app.delete('/api/files/delete', (req, res) => {
+
+app.delete('/api/files/delete', authMiddleware, (req, res) => {
     const { sessionId, filepath } = req.body;
     if (!sessionId || !filepath) {
         return res.status(400).json({ error: 'sessionId and filepath required' });
@@ -352,10 +378,10 @@ app.delete('/api/files/delete', (req, res) => {
     }
 });
 
-// --- Code Execution API ---
+
 
 function findInterpreter(lang) {
-    // 1. Check explicit paths
+
     const interpreters = {
         python: ['/usr/bin/python3', '/usr/local/bin/python3', '/opt/homebrew/bin/python3'],
         javascript: ['/usr/local/bin/node', '/opt/homebrew/bin/node', '/usr/bin/node'],
@@ -368,7 +394,7 @@ function findInterpreter(lang) {
         if (fs.existsSync(p)) return p;
     }
 
-    // 2. Fallback to just the command name (relying on system PATH)
+
     const defaults = {
         python: 'python3',
         javascript: 'node',
@@ -379,7 +405,7 @@ function findInterpreter(lang) {
     return defaults[lang] || null;
 }
 
-app.post('/api/execute', (req, res) => {
+app.post('/api/execute', authMiddleware, (req, res) => {
     const { sessionId, language, code, filepath } = req.body;
 
     if (!sessionId) {
@@ -389,7 +415,7 @@ app.post('/api/execute', (req, res) => {
     const workspaceDir = ensureWorkspace(sessionId);
     let fileToExecute;
 
-    // If filepath provided, use that, otherwise create temp file
+
     if (filepath) {
         fileToExecute = path.join(workspaceDir, filepath);
         if (!fs.existsSync(fileToExecute)) {
@@ -410,7 +436,7 @@ app.post('/api/execute', (req, res) => {
 
     const proc = spawn(interpreter, [fileToExecute], {
         cwd: workspaceDir,
-        timeout: 30000, // 30 seconds
+        timeout: 30000,
         env: process.env
     });
 
@@ -426,7 +452,7 @@ app.post('/api/execute', (req, res) => {
     });
 
     proc.on('close', (code) => {
-        // Clean up temp file if we created it
+
         if (!filepath && fs.existsSync(fileToExecute)) {
             try { fs.unlinkSync(fileToExecute); } catch (e) { }
         }
@@ -445,7 +471,7 @@ app.post('/api/execute', (req, res) => {
         res.status(500).json({ error: err.message });
     });
 
-    // Kill process after timeout
+
     setTimeout(() => {
         if (!proc.killed) {
             kill(proc.pid, 'SIGKILL');
@@ -453,8 +479,8 @@ app.post('/api/execute', (req, res) => {
     }, 31000);
 });
 
-// Compile C/C++ code
-app.post('/api/compile', (req, res) => {
+
+app.post('/api/compile', authMiddleware, (req, res) => {
     const { sessionId, filepath, language } = req.body;
 
     if (!sessionId || !filepath) {

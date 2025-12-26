@@ -11,13 +11,13 @@
         rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 
-    <!-- Xterm.js for Terminal -->
+
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
 </head>
 
 <body>
     <div class="workbench">
-        <!-- Activity Bar -->
+
         <div class="activity-bar">
             <div class="activity-top">
                 <div class="action-item active" title="Explorer (Cmd+Shift+E)">
@@ -48,7 +48,7 @@
             </div>
         </div>
 
-        <!-- Sidebar -->
+
         <div class="sidebar">
             <div class="sidebar-title">
                 <span>EXPLORER</span>
@@ -68,11 +68,11 @@
                     </div>
                 </div>
                 <div id="file-tree" class="file-tree">
-                    <!-- Files will be injected here -->
+
                 </div>
             </div>
 
-            <!-- Search View -->
+
             <div class="sidebar-content" id="search-view" style="display:none">
                 <div class="section-header">
                     <span>SEARCH</span>
@@ -80,12 +80,12 @@
                 <div class="search-container">
                     <input type="text" id="search-input" placeholder="Search filenames..." class="sidebar-input">
                     <div id="search-results" class="file-tree">
-                        <!-- Results injected here -->
+
                     </div>
                 </div>
             </div>
 
-            <!-- Source Control View -->
+
             <div class="sidebar-content" id="scm-view" style="display:none">
                 <div class="section-header">
                     <span>SOURCE CONTROL</span>
@@ -109,7 +109,7 @@
                 </div>
             </div>
 
-            <!-- Extensions View -->
+
             <div class="sidebar-content" id="extensions-view" style="display:none">
                 <div class="section-header">
                     <span>EXTENSIONS</span>
@@ -131,12 +131,12 @@
             </div>
         </div>
 
-        <!-- Editor Area -->
+
         <div class="editor-group-container">
-            <!-- Tabs -->
+
             <div class="editors-header">
                 <div id="tabs" class="tabs-container">
-                    <!-- Tabs go here -->
+
                 </div>
                 <div class="editor-actions">
                     <i class="fas fa-play" id="run-btn" title="Run Code"></i>
@@ -145,7 +145,7 @@
                 </div>
             </div>
 
-            <!-- Breadcrumbs -->
+
             <div class="breadcrumbs">
                 <div class="breadcrumb-item">
                     <i class="fas fa-folder"></i>
@@ -158,12 +158,35 @@
                 </div>
             </div>
 
-            <!-- Monaco Editor -->
+
             <div id="editor-container" class="monaco-container"></div>
         </div>
     </div>
 
-    <!-- Panel (Terminal, Output) -->
+
+    <div id="login-overlay" class="login-overlay">
+        <div class="login-card">
+            <div class="login-header">
+                <i class="fas fa-terminal" style="font-size: 32px; color: var(--bg-status-bar-remote);"></i>
+                <h2>Basement IDE</h2>
+                <p>Please login to continue</p>
+            </div>
+            <div class="login-form">
+                <div class="form-group">
+                    <label for="username">User ID</label>
+                    <input type="text" id="username" placeholder="Enter username">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" placeholder="Enter password">
+                </div>
+                <button id="login-btn" class="login-button">Sign In</button>
+                <div id="login-error" class="login-error" style="display: none;">Invalid credentials</div>
+            </div>
+        </div>
+    </div>
+
+
     <div class="panel-container">
         <div class="panel-header">
             <ul class="panel-tabs">
@@ -187,7 +210,7 @@
         </div>
     </div>
 
-    <!-- Status Bar -->
+
     <footer class="status-bar">
         <div class="status-left">
             <div class="status-item remote-indicator">
@@ -217,25 +240,25 @@
         </div>
     </footer>
 
-    <!-- Command Palette Overlay -->
+
     <div id="command-palette" class="quick-input-widget" style="display: none;">
         <div class="quick-input-header">
             <input type="text" class="quick-input-box" id="palette-input" placeholder="> Type a command...">
         </div>
         <div class="quick-input-list" id="palette-results">
-            <!-- Results -->
+
         </div>
     </div>
 
-    <!-- Load non-AMD libraries first -->
+
     <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 
-    <!-- Monaco Editor Loader (AMD) - Load last before our script -->
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
 
-    <!-- App Script -->
+
     <script src="main.js"></script>
 </body>
 
