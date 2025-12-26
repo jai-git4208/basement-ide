@@ -1,12 +1,23 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const { execFile, execSync } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+const http = require('http');
+const { Server } = require('socket.io');
+const pty = require('node-pty');
+const kill = require('tree-kill');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: '*',
+        methods: ['GET', 'POST']
+    }
+});
+
 const port = 3000;
 
 app.use(cors());
@@ -14,109 +25,357 @@ app.use(bodyParser.json());
 
 // --- Configuration ---
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-const EXECUTOR_PATH = path.join(PROJECT_ROOT, 'executor/executor_bin');
-const ROOTFS_PATH = path.join(PROJECT_ROOT, 'sandbox/rootfs');
-const SANDBOX_UID = process.env.SANDBOX_UID || (os.platform() === 'darwin' ? process.getuid().toString() : '1001');
+const WORKSPACES_ROOT = path.join(PROJECT_ROOT, 'workspaces');
+
+// Ensure workspaces directory exists
+if (!fs.existsSync(WORKSPACES_ROOT)) {
+    fs.mkdirSync(WORKSPACES_ROOT, { recursive: true });
+}
 
 // Serve static files from the client directory
 app.use(express.static(path.join(PROJECT_ROOT, 'client')));
 
-// --- Automatic Setup ---
-function initializeSystem() {
-    console.log('--- Initializing Remote IDE System ---');
-    console.log(`Platform: ${os.platform()} (${os.release()})`);
-    console.log(`Project Root: ${PROJECT_ROOT}`);
+// --- Terminal Sessions ---
+const terminals = {};
+const terminalLogs = {};
 
-    try {
-        // 1. Compile Executor if it doesn't exist
-        if (!fs.existsSync(EXECUTOR_PATH)) {
-            console.log('Compiling executor...');
-            const srcPath = path.join(PROJECT_ROOT, 'executor/executor.c');
-            execSync(`gcc "${srcPath}" -o "${EXECUTOR_PATH}"`);
-            console.log('Executor compiled successfully.');
+io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+
+    socket.on('create-terminal', (data) => {
+        const { sessionId } = data || {};
+        const termId = sessionId || socket.id;
+
+        if (terminals[termId]) {
+            socket.emit('terminal-created', { termId });
+            return;
         }
 
-        // 2. Run Sandbox Setup Script
-        console.log('Setting up sandbox rootfs...');
-        const setupScript = path.join(PROJECT_ROOT, 'scripts/setup_sandbox.sh');
-        fs.chmodSync(setupScript, '755');
-        execSync(`bash "${setupScript}"`);
-        console.log('Sandbox rootfs initialized.');
-
-    } catch (err) {
-        console.error('Initialization warning:', err.message);
-        console.log('Note: Some setup steps might require manual intervention or sudo.');
-    }
-    console.log('--------------------------------------');
-}
-
-initializeSystem();
-
-// Helper to find interpreter path in host (for copying) or sandbox
-function getInterpreterPath(lang) {
-    if (lang === 'python') {
-        // Try common paths
-        const paths = ['/usr/bin/python3', '/usr/local/bin/python3', '/usr/bin/python'];
-        for (const p of paths) {
-            if (fs.existsSync(path.join(ROOTFS_PATH, p))) return p;
-        }
-        return '/usr/bin/python3'; // Fallback
-    } else if (lang === 'javascript') {
-        const paths = ['/usr/bin/node', '/usr/local/bin/node', '/bin/node'];
-        for (const p of paths) {
-            if (fs.existsSync(path.join(ROOTFS_PATH, p))) return p;
-        }
-        return '/usr/bin/node'; // Fallback
-    }
-    return '/bin/sh';
-}
-
-app.post('/api/execute', (req, res) => {
-    const { language, code } = req.body;
-
-    if (!code) {
-        return res.status(400).json({ error: 'No code provided' });
-    }
-
-    // 1. Create a temporary file inside the sandbox
-    const ext = language === 'python' ? 'py' : (language === 'javascript' ? 'js' : 'sh');
-    const filename = `script_${Date.now()}.${ext}`;
-    const filePathInSandbox = path.join('/tmp', filename);
-    const hostFilePath = path.join(ROOTFS_PATH, 'tmp', filename);
-
-    try {
-        fs.writeFileSync(hostFilePath, code);
-    } catch (err) {
-        return res.status(500).json({ error: `Failed to write file to sandbox: ${err.message}` });
-    }
-
-    // 2. Prepare the command based on language
-    const cmd = getInterpreterPath(language);
-    const args = [filePathInSandbox];
-
-
-    // 3. run executor via sudo
-    const executorArgs = [ROOTFS_PATH, SANDBOX_UID, cmd, ...args];
-
-    console.log(`Executing: sudo ${EXECUTOR_PATH} ${executorArgs.join(' ')}`);
-
-    execFile('sudo', [EXECUTOR_PATH, ...executorArgs], (error, stdout, stderr) => {
-        // Cleanup
-        if (fs.existsSync(hostFilePath)) {
-            fs.unlinkSync(hostFilePath);
+        // Create workspace for this session
+        const workspaceDir = path.join(WORKSPACES_ROOT, termId);
+        if (!fs.existsSync(workspaceDir)) {
+            fs.mkdirSync(workspaceDir, { recursive: true });
         }
 
-        if (error) {
-            return res.json({
-                error: error.message,
-                stdout,
-                stderr
-            });
+        // Spawn a shell
+        const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+        const term = pty.spawn(shell, [], {
+            name: 'xterm-color',
+            cols: 80,
+            rows: 30,
+            cwd: workspaceDir,
+            env: process.env
+        });
+
+        terminals[termId] = term;
+        terminalLogs[termId] = '';
+
+        term.on('data', (data) => {
+            terminalLogs[termId] += data;
+            socket.emit('terminal-output', data);
+        });
+
+        term.on('exit', () => {
+            delete terminals[termId];
+            socket.emit('terminal-exit');
+        });
+
+        socket.emit('terminal-created', { termId });
+    });
+
+    socket.on('terminal-input', (data) => {
+        const { termId, input } = data;
+        if (terminals[termId]) {
+            terminals[termId].write(input);
         }
-        res.json({ stdout, stderr });
+    });
+
+    socket.on('terminal-resize', (data) => {
+        const { termId, cols, rows } = data;
+        if (terminals[termId]) {
+            terminals[termId].resize(cols, rows);
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Client disconnected:', socket.id);
+        // Optional: keep terminals alive or kill them
     });
 });
 
-app.listen(port, () => {
-    console.log(`IDE backend listening at http://localhost:${port}`);
+// --- File Management API ---
+
+// Create workspace if it doesn't exist
+function ensureWorkspace(sessionId) {
+    const workspaceDir = path.join(WORKSPACES_ROOT, sessionId);
+    if (!fs.existsSync(workspaceDir)) {
+        fs.mkdirSync(workspaceDir, { recursive: true });
+    }
+    return workspaceDir;
+}
+
+// List files in workspace
+app.get('/api/files/list', (req, res) => {
+    const { sessionId } = req.query;
+    if (!sessionId) {
+        return res.status(400).json({ error: 'sessionId required' });
+    }
+
+    const workspaceDir = ensureWorkspace(sessionId);
+
+    function readDirRecursive(dir, base = '') {
+        const files = [];
+        const items = fs.readdirSync(dir);
+
+        for (const item of items) {
+            const fullPath = path.join(dir, item);
+            const relativePath = path.join(base, item);
+            const stat = fs.statSync(fullPath);
+
+            if (stat.isDirectory()) {
+                files.push({
+                    name: item,
+                    path: relativePath,
+                    type: 'directory',
+                    children: readDirRecursive(fullPath, relativePath)
+                });
+            } else {
+                files.push({
+                    name: item,
+                    path: relativePath,
+                    type: 'file',
+                    size: stat.size
+                });
+            }
+        }
+
+        return files;
+    }
+
+    try {
+        const files = readDirRecursive(workspaceDir);
+        res.json({ files });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Read file content
+app.get('/api/files/read', (req, res) => {
+    const { sessionId, filepath } = req.query;
+    if (!sessionId || !filepath) {
+        return res.status(400).json({ error: 'sessionId and filepath required' });
+    }
+
+    const workspaceDir = ensureWorkspace(sessionId);
+    const fullPath = path.join(workspaceDir, filepath);
+
+    // Security check: ensure file is within workspace
+    if (!fullPath.startsWith(workspaceDir)) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
+
+    try {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        res.json({ content });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create or update file
+app.post('/api/files/save', (req, res) => {
+    const { sessionId, filepath, content } = req.body;
+    if (!sessionId || !filepath) {
+        return res.status(400).json({ error: 'sessionId and filepath required' });
+    }
+
+    const workspaceDir = ensureWorkspace(sessionId);
+    const fullPath = path.join(workspaceDir, filepath);
+
+    // Security check
+    if (!fullPath.startsWith(workspaceDir)) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
+
+    try {
+        const dir = path.dirname(fullPath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(fullPath, content || '');
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete file
+app.delete('/api/files/delete', (req, res) => {
+    const { sessionId, filepath } = req.body;
+    if (!sessionId || !filepath) {
+        return res.status(400).json({ error: 'sessionId and filepath required' });
+    }
+
+    const workspaceDir = ensureWorkspace(sessionId);
+    const fullPath = path.join(workspaceDir, filepath);
+
+    if (!fullPath.startsWith(workspaceDir)) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
+
+    try {
+        fs.unlinkSync(fullPath);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- Code Execution API ---
+
+function findInterpreter(lang) {
+    const interpreters = {
+        python: ['/usr/bin/python3', '/usr/local/bin/python3', '/opt/homebrew/bin/python3'],
+        javascript: ['/usr/local/bin/node', '/opt/homebrew/bin/node', '/usr/bin/node'],
+        bash: ['/bin/bash'],
+        sh: ['/bin/sh']
+    };
+
+    const paths = interpreters[lang] || [];
+    for (const p of paths) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
+}
+
+app.post('/api/execute', (req, res) => {
+    const { sessionId, language, code, filepath } = req.body;
+
+    if (!sessionId) {
+        return res.status(400).json({ error: 'sessionId required' });
+    }
+
+    const workspaceDir = ensureWorkspace(sessionId);
+    let fileToExecute;
+
+    // If filepath provided, use that, otherwise create temp file
+    if (filepath) {
+        fileToExecute = path.join(workspaceDir, filepath);
+        if (!fs.existsSync(fileToExecute)) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+    } else {
+        // Create temporary file
+        const ext = language === 'python' ? 'py' : (language === 'javascript' ? 'js' : 'sh');
+        const filename = `temp_${Date.now()}.${ext}`;
+        fileToExecute = path.join(workspaceDir, filename);
+        fs.writeFileSync(fileToExecute, code || '');
+    }
+
+    const interpreter = findInterpreter(language);
+    if (!interpreter) {
+        return res.status(400).json({ error: `Interpreter for ${language} not found` });
+    }
+
+    const proc = spawn(interpreter, [fileToExecute], {
+        cwd: workspaceDir,
+        timeout: 30000, // 30 seconds
+        env: process.env
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+    });
+
+    proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+        // Clean up temp file if we created it
+        if (!filepath && fs.existsSync(fileToExecute)) {
+            try { fs.unlinkSync(fileToExecute); } catch (e) { }
+        }
+
+        res.json({
+            stdout,
+            stderr,
+            exitCode: code
+        });
+    });
+
+    proc.on('error', (err) => {
+        if (!filepath && fs.existsSync(fileToExecute)) {
+            try { fs.unlinkSync(fileToExecute); } catch (e) { }
+        }
+        res.status(500).json({ error: err.message });
+    });
+
+    // Kill process after timeout
+    setTimeout(() => {
+        if (!proc.killed) {
+            kill(proc.pid, 'SIGKILL');
+        }
+    }, 31000);
+});
+
+// Compile C/C++ code
+app.post('/api/compile', (req, res) => {
+    const { sessionId, filepath, language } = req.body;
+
+    if (!sessionId || !filepath) {
+        return res.status(400).json({ error: 'sessionId and filepath required' });
+    }
+
+    const workspaceDir = ensureWorkspace(sessionId);
+    const sourceFile = path.join(workspaceDir, filepath);
+
+    if (!fs.existsSync(sourceFile)) {
+        return res.status(404).json({ error: 'Source file not found' });
+    }
+
+    const compiler = language === 'cpp' ? 'g++' : 'gcc';
+    const outputFile = path.join(workspaceDir, 'a.out');
+
+    const proc = spawn(compiler, [sourceFile, '-o', outputFile], {
+        cwd: workspaceDir,
+        timeout: 30000
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+    });
+
+    proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+        if (code === 0) {
+            res.json({ success: true, output: outputFile.replace(workspaceDir, ''), stdout, stderr });
+        } else {
+            res.json({ success: false, stdout, stderr, exitCode: code });
+        }
+    });
+
+    proc.on('error', (err) => {
+        res.status(500).json({ error: err.message });
+    });
+});
+
+server.listen(port, () => {
+    console.log('========================================');
+    console.log('🚀 Basement Remote IDE Server');
+    console.log('========================================');
+    console.log(`Platform: ${process.platform}`);
+    console.log(`Server: http://localhost:${port}`);
+    console.log(`Workspaces: ${WORKSPACES_ROOT}`);
+    console.log('========================================');
 });
