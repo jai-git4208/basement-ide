@@ -56,13 +56,77 @@
                     <i class="fas fa-ellipsis-h"></i>
                 </div>
             </div>
-            <div class="sidebar-content">
+            <div class="sidebar-content" id="explorer-view">
                 <div class="section-header expanded">
                     <i class="fas fa-chevron-down"></i>
                     <span>BASEMENT</span>
+                    <div class="section-actions">
+                        <i class="fas fa-file-medical" id="new-file-icon" title="New File"></i>
+                        <i class="fas fa-folder-plus" id="new-folder-icon" title="New Folder"></i>
+                        <i class="fas fa-sync-alt" id="refresh-icon" title="Refresh Explorer"></i>
+                        <i class="fas fa-compress-arrows-alt" id="collapse-icon" title="Collapse All Folders"></i>
+                    </div>
                 </div>
                 <div id="file-tree" class="file-tree">
                     <!-- Files will be injected here -->
+                </div>
+            </div>
+
+            <!-- Search View -->
+            <div class="sidebar-content" id="search-view" style="display:none">
+                <div class="section-header">
+                    <span>SEARCH</span>
+                </div>
+                <div class="search-container">
+                    <input type="text" id="search-input" placeholder="Search filenames..." class="sidebar-input">
+                    <div id="search-results" class="file-tree">
+                        <!-- Results injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Source Control View -->
+            <div class="sidebar-content" id="scm-view" style="display:none">
+                <div class="section-header">
+                    <span>SOURCE CONTROL</span>
+                </div>
+                <div class="scm-container">
+                    <div class="scm-commit-box">
+                        <textarea placeholder="Message (Cmd+Enter to commit)" class="sidebar-textarea"></textarea>
+                    </div>
+                    <div class="scm-changes">
+                        <div class="section-header">
+                            <i class="fas fa-chevron-down"></i>
+                            <span>CHANGES</span>
+                            <span class="badge">1</span>
+                        </div>
+                        <div class="file-item">
+                            <i class="fas fa-file-code"></i>
+                            <span>main.js</span>
+                            <span class="scm-status modified">M</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Extensions View -->
+            <div class="sidebar-content" id="extensions-view" style="display:none">
+                <div class="section-header">
+                    <span>EXTENSIONS</span>
+                </div>
+                <div class="extensions-container">
+                    <div class="extension-item">
+                        <div class="extension-header">
+                            <i class="fas fa-palette"></i>
+                            <span>Theme: Dark Modern</span>
+                        </div>
+                        <p>Change the editor theme.</p>
+                        <select id="theme-selector" class="sidebar-select">
+                            <option value="vs-dark">Dark Modern</option>
+                            <option value="vs-light">Light Modern</option>
+                            <option value="hc-black">High Contrast</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>

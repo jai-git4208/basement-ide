@@ -89,7 +89,6 @@ io.on('connection', (socket) => {
             fs.mkdirSync(workspaceDir, { recursive: true });
         }
 
-        // Determine shell path safely
         let shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
 
         // Verify shell exists, fallback to standard locations
@@ -98,16 +97,54 @@ io.on('connection', (socket) => {
             if (!fs.existsSync(shell)) shell = '/bin/sh'; // absolute fallback
         }
 
+        // --- Soft Jail Implementation ---
+        // We use shell initialization to override 'cd' and set the environment.
+        const initFile = path.join(workspaceDir, '.bashrc_jail');
+        const isZsh = shell.includes('zsh');
+
+        const jailScript = `
+# Soft Jail for Basement IDE
+export HOME="${workspaceDir}"
+export PS1="[basement] \\w $ "
+[ -f /etc/profile ] && . /etc/profile
+
+alias cd='function _cd() { 
+    if [ "$1" = ".." ] || [[ "$1" == *"../"* ]] || [[ "$1" == "/"* ]]; then
+        if [[ "$(realpath -m "$PWD/$1")" != "${workspaceDir}"* ]]; then
+            echo "Access Denied: Cannot escape workspace";
+            return 1;
+        fi
+    fi
+    builtin cd "$@"; 
+}; _cd'
+`;
+        fs.writeFileSync(initFile, jailScript);
+
         let term;
         try {
-            console.log(`[DEBUG] Attempting pty.spawn with ${shell}`);
-            term = pty.spawn(shell, [], {
+            console.log(`[DEBUG] Attempting pty.spawn with ${shell} (Jailed)`);
+
+            // For bash/zsh, we can use --rcfile or similar, but a more universal way 
+            // is to just run the shell and then pipe the source command, 
+            // OR use environment variables.
+
+            term = pty.spawn(shell, isZsh ? ['-i'] : ['--rcfile', initFile, '-i'], {
                 name: 'xterm-256color',
                 cols: 80,
                 rows: 30,
                 cwd: workspaceDir,
-                env: process.env // Pass full env for native-like behavior
+                env: {
+                    ...process.env,
+                    HOME: workspaceDir,
+                    PROMPT_COMMAND: isZsh ? "" : `source ${initFile}`
+                }
             });
+
+            // If zsh, we can't easily use --rcfile, so we write to .zshrc in the workspace
+            if (isZsh) {
+                fs.writeFileSync(path.join(workspaceDir, '.zshrc'), jailScript);
+            }
+
             console.log(`[DEBUG] pty.spawn success`);
         } catch (ptyErr) {
             console.error(`[WARN] node-pty failed: ${ptyErr.message}. Falling back to child_process.spawn.`);
@@ -262,6 +299,31 @@ app.post('/api/files/save', (req, res) => {
             fs.mkdirSync(dir, { recursive: true });
         }
         fs.writeFileSync(fullPath, content || '');
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create directory
+app.post('/api/files/mkdir', (req, res) => {
+    const { sessionId, filepath } = req.body;
+    if (!sessionId || !filepath) {
+        return res.status(400).json({ error: 'sessionId and filepath required' });
+    }
+
+    const workspaceDir = ensureWorkspace(sessionId);
+    const fullPath = path.join(workspaceDir, filepath);
+
+    // Security check
+    if (!fullPath.startsWith(workspaceDir)) {
+        return res.status(403).json({ error: 'Access denied' });
+    }
+
+    try {
+        if (!fs.existsSync(fullPath)) {
+            fs.mkdirSync(fullPath, { recursive: true });
+        }
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -440,7 +502,7 @@ app.post('/api/compile', (req, res) => {
 
 server.listen(port, () => {
     console.log('========================================');
-    console.log('🚀 Basement Remote IDE Server');
+    console.log(' Basement Remote IDE Server');
     console.log('========================================');
     console.log(`Platform: ${process.platform}`);
     console.log(`Server: http://localhost:${port}`);

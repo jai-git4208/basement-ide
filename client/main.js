@@ -1,5 +1,6 @@
 // main.js - Basement IDE Client
 
+// --- Global State ---
 let editor;
 let socket;
 let terminal;
@@ -9,7 +10,7 @@ let currentFile = 'scratch.py';
 let openFiles = new Map(); // filepath -> content
 let activeTab = 'scratch.py';
 
-
+// --- Initialize on Load ---
 window.addEventListener('load', () => {
     // Check if required libraries are loaded
     if (typeof io === 'undefined') {
@@ -25,19 +26,19 @@ window.addEventListener('load', () => {
         return;
     }
 
-
+    // Initialize components
     initMonaco();
     initTerminal();
     initFileExplorer();
     initEventListeners();
 });
 
-
+// --- Session ID ---
 function generateSessionId() {
     return 'session_' + Math.random().toString(36).substr(2, 9);
 }
 
-
+// --- Monaco Editor Setup ---
 function initMonaco() {
     require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
 
@@ -53,28 +54,28 @@ function initMonaco() {
             padding: { top: 16 }
         });
 
-        
+        // Save current file content to memory
         openFiles.set(currentFile, editor.getValue());
 
-        
+        // Auto-save on change
         editor.onDidChangeModelContent(() => {
             if (currentFile) {
                 openFiles.set(currentFile, editor.getValue());
             }
         });
 
-        // keyboard shortcut: Cmd/Ctrl+S to save
+        // Keyboard shortcut: Cmd/Ctrl+S to save
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             saveCurrentFile();
         });
     });
 }
 
-
+// --- Terminal Setup ---
 function initTerminal() {
     socket = io('http://localhost:3000');
 
-   
+    // Create xterm instance
     terminal = new Terminal({
         cursorBlink: true,
         fontSize: 14,
@@ -91,10 +92,10 @@ function initTerminal() {
     terminal.open(document.getElementById('terminal'));
     fitAddon.fit();
 
-    
+    // Request terminal creation
     socket.emit('create-terminal', { sessionId });
 
-    
+    // Handle terminal output
     socket.on('terminal-output', (data) => {
         terminal.write(data);
     });
@@ -108,12 +109,12 @@ function initTerminal() {
         terminal.write('\r\n\x1b[1;31m[Terminal exited]\x1b[0m\r\n');
     });
 
-   
+    // Send input to terminal
     terminal.onData((data) => {
         socket.emit('terminal-input', { termId: sessionId, input: data });
     });
 
-    
+    // Resize terminal
     window.addEventListener('resize', () => {
         fitAddon.fit();
         socket.emit('terminal-resize', {
@@ -124,7 +125,7 @@ function initTerminal() {
     });
 }
 
-// --- file explorer ---
+// --- File Explorer ---
 function initFileExplorer() {
     refreshFileList();
 }
@@ -283,6 +284,45 @@ function newFile() {
     saveCurrentFile(); // Create empty file on server
 }
 
+async function newFolder() {
+    const foldername = prompt('Enter folder name:');
+    if (!foldername) return;
+
+    try {
+        const response = await fetch('http://localhost:3000/api/files/mkdir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId,
+                filepath: foldername
+            })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            appendOutput(`✓ Created folder: ${foldername}`, 'success-text');
+            refreshFileList();
+        }
+    } catch (err) {
+        appendOutput(`Error creating folder: ${err.message}`, 'error-text');
+    }
+}
+
+function collapseAll() {
+    const folders = document.querySelectorAll('.file-list .file-list');
+    folders.forEach(list => {
+        list.style.display = 'none';
+        const header = list.previousElementSibling;
+        if (header && header.classList.contains('folder-header')) {
+            const icon = header.querySelector('.fas, .fa');
+            if (icon) {
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-right');
+            }
+        }
+    });
+}
+
 // --- Tab Management ---
 function addTab(filepath) {
     const tabs = document.getElementById('tabs');
@@ -385,17 +425,24 @@ async function runCode() {
 
     // Use terminal to run code
     let command = '';
+    const fileBasename = currentFile.split('/').pop();
+
     switch (lang) {
-        case 'python': command = `python3 "${currentFile}"`; break;
-        case 'javascript': command = `node "${currentFile}"`; break;
+        case 'python':
+            command = `python3 "${currentFile}"`;
+            break;
+        case 'javascript':
+            command = `node "${currentFile}"`;
+            break;
         case 'c':
-            // Compile then run
             command = `gcc "${currentFile}" -o "${currentFile}.out" && "./${currentFile}.out"`;
             break;
         case 'cpp':
             command = `g++ "${currentFile}" -o "${currentFile}.out" && "./${currentFile}.out"`;
             break;
-        case 'shell': command = `bash "${currentFile}"`; break;
+        case 'shell':
+            command = `bash "${currentFile}"`;
+            break;
     }
 
     if (command) {
@@ -428,6 +475,31 @@ function initEventListeners() {
     const runBtn = document.getElementById('run-btn');
     if (runBtn) runBtn.addEventListener('click', runCode);
 
+    // Sidebar Header Actions
+    const newFileBtn = document.getElementById('new-file-icon');
+    if (newFileBtn) newFileBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        newFile();
+    });
+
+    const newFolderBtn = document.getElementById('new-folder-icon');
+    if (newFolderBtn) newFolderBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        newFolder();
+    });
+
+    const refreshBtn = document.getElementById('refresh-icon');
+    if (refreshBtn) refreshBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        refreshFileList();
+    });
+
+    const collapseBtn = document.getElementById('collapse-icon');
+    if (collapseBtn) collapseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        collapseAll();
+    });
+
     // Clear Terminal
     const clearBtn = document.getElementById('clear-terminal-btn');
     if (clearBtn) clearBtn.addEventListener('click', () => {
@@ -450,17 +522,78 @@ function initEventListeners() {
                 item.classList.add('active');
 
                 // Toggle views based on title or data-view
-                const title = item.getAttribute('title') || '';
+                const title = (item.getAttribute('title') || '').toLowerCase();
                 const sidebar = document.querySelector('.sidebar');
-                if (title.includes('Explorer')) {
+
+                // Hide all views first
+                document.querySelectorAll('.sidebar-content').forEach(v => v.style.display = 'none');
+
+                if (title.includes('explorer')) {
                     if (sidebar) sidebar.style.display = 'flex';
+                    document.getElementById('explorer-view').style.display = 'flex';
+                } else if (title.includes('search')) {
+                    if (sidebar) sidebar.style.display = 'flex';
+                    document.getElementById('search-view').style.display = 'flex';
+                    document.getElementById('search-input').focus();
+                } else if (title.includes('source control')) {
+                    if (sidebar) sidebar.style.display = 'flex';
+                    document.getElementById('scm-view').style.display = 'flex';
+                } else if (title.includes('extensions')) {
+                    if (sidebar) sidebar.style.display = 'flex';
+                    document.getElementById('extensions-view').style.display = 'flex';
+                } else if (title.includes('accounts')) {
+                    alert('Accounts feature coming soon!');
+                    if (sidebar) sidebar.style.display = 'none';
+                } else if (title.includes('manage')) {
+                    alert('Settings feature coming soon!');
+                    if (sidebar) sidebar.style.display = 'none';
                 } else {
-                    // Hide sidebar for other views (search, source control, etc.)
+                    // Hide sidebar for other views
                     if (sidebar) sidebar.style.display = 'none';
                 }
             }
         });
     });
+
+    // Search functionality
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const results = document.getElementById('search-results');
+            if (!results) return;
+
+            if (!query) {
+                results.innerHTML = '';
+                return;
+            }
+
+            // Flat-search files (we can iterate over openFiles or the tree)
+            // For now, let's just search the labels in the tree
+            const fileItems = document.querySelectorAll('#explorer-view .file-item');
+            results.innerHTML = '';
+            fileItems.forEach(item => {
+                const name = item.innerText.toLowerCase();
+                if (name.includes(query)) {
+                    const clone = item.cloneNode(true);
+                    clone.addEventListener('click', () => {
+                        openFile(item.dataset.path);
+                    });
+                    results.appendChild(clone);
+                }
+            });
+        });
+    }
+
+    // Theme selector
+    const themeSelector = document.getElementById('theme-selector');
+    if (themeSelector) {
+        themeSelector.addEventListener('change', (e) => {
+            if (monaco && editor) {
+                monaco.editor.setTheme(e.target.value);
+            }
+        });
+    }
 
     // Panel Tabs
     document.querySelectorAll('.panel-tabs li').forEach(tab => {
@@ -493,6 +626,19 @@ function initEventListeners() {
         newTerminalBtn.addEventListener('click', () => {
             terminal.clear();
             socket.emit('create-terminal', { sessionId });
+        });
+    }
+
+    const maximizeBtn = document.querySelector('.panel-actions i[title="Maximize Panel"]');
+    if (maximizeBtn) {
+        maximizeBtn.addEventListener('click', () => {
+            const panel = document.querySelector('.panel-container');
+            if (panel) {
+                const isMax = panel.style.height === '80vh';
+                panel.style.height = isMax ? '240px' : '80vh';
+                maximizeBtn.classList.toggle('fa-chevron-down', !isMax);
+                maximizeBtn.classList.toggle('fa-chevron-up', isMax);
+            }
         });
     }
 
