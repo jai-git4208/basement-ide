@@ -1,6 +1,5 @@
 // main.js - Basement IDE Client
 
-// --- Global State ---
 let editor;
 let socket;
 let terminal;
@@ -10,20 +9,35 @@ let currentFile = 'scratch.py';
 let openFiles = new Map(); // filepath -> content
 let activeTab = 'scratch.py';
 
-// --- Initialize on Load ---
-document.addEventListener('DOMContentLoaded', () => {
+
+window.addEventListener('load', () => {
+    // Check if required libraries are loaded
+    if (typeof io === 'undefined') {
+        console.error('Socket.io not loaded!');
+        return;
+    }
+    if (typeof Terminal === 'undefined') {
+        console.error('Xterm.js not loaded!');
+        return;
+    }
+    if (typeof require === 'undefined') {
+        console.error('Monaco loader not loaded!');
+        return;
+    }
+
+
     initMonaco();
     initTerminal();
     initFileExplorer();
     initEventListeners();
 });
 
-// --- Session ID ---
+
 function generateSessionId() {
     return 'session_' + Math.random().toString(36).substr(2, 9);
 }
 
-// --- Monaco Editor Setup ---
+
 function initMonaco() {
     require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
 
@@ -39,28 +53,28 @@ function initMonaco() {
             padding: { top: 16 }
         });
 
-        // Save current file content to memory
+        
         openFiles.set(currentFile, editor.getValue());
 
-        // Auto-save on change
+        
         editor.onDidChangeModelContent(() => {
             if (currentFile) {
                 openFiles.set(currentFile, editor.getValue());
             }
         });
 
-        // Keyboard shortcut: Cmd/Ctrl+S to save
+        // keyboard shortcut: Cmd/Ctrl+S to save
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             saveCurrentFile();
         });
     });
 }
 
-// --- Terminal Setup ---
+
 function initTerminal() {
     socket = io('http://localhost:3000');
 
-    // Create xterm instance
+   
     terminal = new Terminal({
         cursorBlink: true,
         fontSize: 14,
@@ -77,10 +91,10 @@ function initTerminal() {
     terminal.open(document.getElementById('terminal'));
     fitAddon.fit();
 
-    // Request terminal creation
+    
     socket.emit('create-terminal', { sessionId });
 
-    // Handle terminal output
+    
     socket.on('terminal-output', (data) => {
         terminal.write(data);
     });
@@ -94,12 +108,12 @@ function initTerminal() {
         terminal.write('\r\n\x1b[1;31m[Terminal exited]\x1b[0m\r\n');
     });
 
-    // Send input to terminal
+   
     terminal.onData((data) => {
         socket.emit('terminal-input', { termId: sessionId, input: data });
     });
 
-    // Resize terminal
+    
     window.addEventListener('resize', () => {
         fitAddon.fit();
         socket.emit('terminal-resize', {
@@ -110,7 +124,7 @@ function initTerminal() {
     });
 }
 
-// --- File Explorer ---
+// --- file explorer ---
 function initFileExplorer() {
     refreshFileList();
 }
@@ -125,15 +139,40 @@ async function refreshFileList() {
         if (data.files && data.files.length > 0) {
             fileTree.innerHTML = renderFileTree(data.files);
         } else {
-            fileTree.innerHTML = '<div class="empty-state">No files yet. Create one to get started!</div>';
+            fileTree.innerHTML = '<div class="file-item" style="padding-left: 20px; font-style: italic;">No files found</div>';
         }
 
-        // Add click listeners
+        // Add click listeners to files
         document.querySelectorAll('.file-item').forEach(el => {
             el.addEventListener('click', () => {
+                // Visual selection
+                document.querySelectorAll('.file-item').forEach(i => i.classList.remove('selected'));
+                el.classList.add('selected');
+
                 const filepath = el.dataset.path;
                 openFile(filepath);
             });
+        });
+
+        // Toggle folders (simple implementation)
+        const explorer = document.getElementById('file-tree');
+        if (!explorer) return;
+
+        explorer.addEventListener('click', async (e) => {
+            const el = e.target.closest('.folder-header');
+            if (el) {
+                const list = el.nextElementSibling;
+                const icon = el.querySelector('.fas, .fa');
+                if (list) {
+                    const isHidden = list.style.display === 'none';
+                    list.style.display = isHidden ? 'block' : 'none';
+                    if (icon) {
+                        icon.classList.toggle('fa-chevron-down', isHidden);
+                        icon.classList.toggle('fa-chevron-right', !isHidden);
+                    }
+                }
+                return;
+            }
         });
     } catch (err) {
         console.error('Failed to load file list:', err);
@@ -141,19 +180,24 @@ async function refreshFileList() {
 }
 
 function renderFileTree(files, level = 0) {
-    let html = '<ul class="file-list">';
+    let html = '<ul class="file-list" style="' + (level > 0 ? 'padding-left: 10px' : '') + '">';
 
     for (const file of files) {
-        const indent = level * 16;
         if (file.type === 'directory') {
-            html += `<li style="padding-left: ${indent}px">
-                <div class="folder-item">📁 ${file.name}</div>
+            html += `<li>
+                <div class="folder-header folder-item">
+                    <i class="fas fa-chevron-right" style="margin-right: 6px; width: 16px; text-align: center;"></i>
+                    <span style="font-weight: 600">${file.name}</span>
+                </div>
                 ${file.children ? renderFileTree(file.children, level + 1) : ''}
             </li>`;
         } else {
-            const icon = getFileIcon(file.name);
-            html += `<li style="padding-left: ${indent}px">
-                <div class="file-item" data-path="${file.path}">${icon} ${file.name}</div>
+            const iconClass = getFileIconClass(file.name);
+            html += `<li>
+                <div class="file-item" data-path="${file.path}">
+                    <i class="${iconClass}" style="margin-right: 6px; width: 16px; text-align: center;"></i>
+                    <span>${file.name}</span>
+                </div>
             </li>`;
         }
     }
@@ -162,13 +206,21 @@ function renderFileTree(files, level = 0) {
     return html;
 }
 
-function getFileIcon(filename) {
-    if (filename.endsWith('.py')) return '🐍';
-    if (filename.endsWith('.js')) return '📜';
-    if (filename.endsWith('.c') || filename.endsWith('.cpp')) return '⚙️';
-    if (filename.endsWith('.sh')) return '🔧';
-    if (filename.endsWith('.md')) return '📝';
-    return '📄';
+function getFileIconClass(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const map = {
+        'js': 'fas fa-file-code',
+        'py': 'fas fa-file-code',
+        'html': 'fas fa-file-code',
+        'css': 'fas fa-file-code',
+        'json': 'fas fa-file-code',
+        'md': 'fas fa-file-alt',
+        'txt': 'fas fa-file-alt',
+        'c': 'fas fa-file-code',
+        'cpp': 'fas fa-file-code',
+        'h': 'fas fa-file-code'
+    };
+    return map[ext] || 'fas fa-file';
 }
 
 // --- File Operations ---
@@ -243,12 +295,16 @@ function addTab(filepath) {
     const tab = document.createElement('div');
     tab.className = 'tab';
     tab.dataset.file = filepath;
+
+    const iconClass = getFileIconClass(filepath);
+
     tab.innerHTML = `
-        <span class="tab-name">${filepath}</span>
-        <button class="tab-close">×</button>
+        <div class="tab-icon"><i class="${iconClass}"></i></div>
+        <div class="tab-label">${filepath}</div>
+        <button class="tab-close"><i class="fas fa-times"></i></button>
     `;
 
-    tab.querySelector('.tab-name').addEventListener('click', () => {
+    tab.addEventListener('click', () => {
         switchToFile(filepath);
     });
 
@@ -262,13 +318,17 @@ function addTab(filepath) {
 
 function switchToFile(filepath) {
     currentFile = filepath;
-    activeTab = filepath;
+
+    // Update tabs visual state
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    const tab = document.querySelector(`.tab[data-file="${filepath}"]`);
+    if (tab) tab.classList.add('active');
 
     // Update editor content
     const content = openFiles.get(filepath) || '';
     editor.setValue(content);
 
-    // Update language based on extension
+    // Update language
     const ext = filepath.split('.').pop();
     const langMap = {
         py: 'python',
@@ -276,184 +336,265 @@ function switchToFile(filepath) {
         c: 'c',
         cpp: 'cpp',
         sh: 'shell',
-        md: 'markdown'
+        md: 'markdown',
+        html: 'html',
+        css: 'css',
+        json: 'json'
     };
     const lang = langMap[ext] || 'plaintext';
     monaco.editor.setModelLanguage(editor.getModel(), lang);
 
-    // Update language selector
-    const select = document.getElementById('language-select');
-    if (langMap[ext]) {
-        select.value = lang === 'shell' ? 'bash' : lang;
-    }
+    // Update Status Bar
+    document.getElementById('lang-status').textContent = lang.charAt(0).toUpperCase() + lang.slice(1);
 
-    // Update active tab styling
-    document.querySelectorAll('.tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.file === filepath);
-    });
+    // Update Breadcrumbs
+    document.getElementById('breadcrumb-filename').textContent = filepath;
+    document.getElementById('breadcrumb-icon').className = `${getFileIconClass(filepath)}`;
 }
 
 function closeTab(filepath) {
-    openFiles.delete(filepath);
     const tab = document.querySelector(`.tab[data-file="${filepath}"]`);
     if (tab) tab.remove();
 
-    // Switch to another tab if this was active
+    openFiles.delete(filepath);
+
     if (currentFile === filepath) {
-        const remaining = document.querySelector('.tab');
-        if (remaining) {
-            switchToFile(remaining.dataset.file);
+        const remaining = Array.from(openFiles.keys());
+        if (remaining.length > 0) {
+            switchToFile(remaining[remaining.length - 1]);
         } else {
             currentFile = null;
             editor.setValue('');
+            document.getElementById('breadcrumb-filename').textContent = '';
+            document.getElementById('lang-status').textContent = 'Plain Text';
         }
     }
 }
 
-// --- Code Execution ---
+// --- Execution ---
 async function runCode() {
-    const code = editor.getValue();
-    const language = document.getElementById('language-select').value;
+    if (!currentFile) {
+        alert('Please create or open a file first.');
+        return;
+    }
 
-    switchToOutputPanel();
-    appendOutput(`\n▶ Running ${language}...\n`, 'prompt');
+    const lang = monaco.editor.getModel(editor.getModel()).getLanguageId();
 
-    try {
-        const response = await fetch('http://localhost:3000/api/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                sessionId,
-                language,
-                code,
-                filepath: currentFile // If file exists, run from file
-            })
+    // Auto-save before running
+    await saveCurrentFile();
+
+    // Use terminal to run code
+    let command = '';
+    switch (lang) {
+        case 'python': command = `python3 "${currentFile}"`; break;
+        case 'javascript': command = `node "${currentFile}"`; break;
+        case 'c':
+            // Compile then run
+            command = `gcc "${currentFile}" -o "${currentFile}.out" && "./${currentFile}.out"`;
+            break;
+        case 'cpp':
+            command = `g++ "${currentFile}" -o "${currentFile}.out" && "./${currentFile}.out"`;
+            break;
+        case 'shell': command = `bash "${currentFile}"`; break;
+    }
+
+    if (command) {
+        // Focus terminal
+        document.querySelector('[data-tab="terminal"]').click();
+        socket.emit('terminal-input', {
+            termId: sessionId,
+            input: command + '\r'
         });
-
-        const data = await response.json();
-
-        if (data.stdout) {
-            appendOutput(data.stdout, 'stdout-text');
-        }
-
-        if (data.stderr) {
-            appendOutput(data.stderr, 'stderr-text');
-        }
-
-        if (data.error) {
-            appendOutput(`Error: ${data.error}`, 'error-text');
-        }
-
-        if (data.exitCode !== undefined) {
-            appendOutput(`\nExited with code ${data.exitCode}`, 'prompt');
-        }
-
-    } catch (err) {
-        appendOutput(`Connection error: ${err.message}`, 'error-text');
+    } else {
+        alert(`Execution for language '${lang}' is not supported yet.`);
     }
 }
 
-// --- Terminal Panel Switching ---
-function switchToTerminalPanel() {
-    document.querySelectorAll('.terminal-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.tab === 'terminal');
-    });
-    document.getElementById('terminal').classList.add('active');
-    document.getElementById('output').classList.remove('active');
-    fitAddon.fit();
-}
-
-function switchToOutputPanel() {
-    document.querySelectorAll('.terminal-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.tab === 'output');
-    });
-    document.getElementById('terminal').classList.remove('active');
-    document.getElementById('output').classList.add('active');
-}
-
-function appendOutput(text, className = '') {
-    const outputEl = document.getElementById('output');
-    const div = document.createElement('div');
-    div.className = 'output-line ' + className;
-    div.textContent = text;
-    outputEl.appendChild(div);
-    outputEl.scrollTop = outputEl.scrollHeight;
+function appendOutput(text, className) {
+    // Legacy output handler - now we use terminal primarily
+    const outputPanel = document.getElementById('output');
+    if (outputPanel) {
+        const line = document.createElement('div');
+        line.className = 'output-line ' + (className || '');
+        line.textContent = text;
+        outputPanel.appendChild(line);
+        outputPanel.scrollTop = outputPanel.scrollHeight;
+    }
 }
 
 // --- Event Listeners ---
 function initEventListeners() {
-    // Run button
-    document.getElementById('run-btn').addEventListener('click', runCode);
+    // Run Button (Icon)
+    const runBtn = document.getElementById('run-btn');
+    if (runBtn) runBtn.addEventListener('click', runCode);
 
-    // New file
-    document.getElementById('new-file-btn').addEventListener('click', newFile);
+    // Clear Terminal
+    const clearBtn = document.getElementById('clear-terminal-btn');
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+        if (terminal) terminal.clear();
+    });
 
-    // Save file
-    document.getElementById('save-file-btn').addEventListener('click', saveCurrentFile);
+    if (editor) {
+        editor.onDidChangeCursorPosition((e) => {
+            const pos = e.position;
+            const el = document.getElementById('cursor-position');
+            if (el) el.textContent = `Ln ${pos.lineNumber}, Col ${pos.column}`;
+        });
+    }
 
-    // Refresh files
-    document.getElementById('refresh-files-btn').addEventListener('click', refreshFileList);
+    // Activity Bar switching
+    document.querySelectorAll('.action-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if (item.closest('.activity-top')) {
+                document.querySelectorAll('.activity-top .action-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
 
-    // Terminal tabs
-    document.querySelectorAll('.terminal-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            if (tab.dataset.tab === 'terminal') {
-                switchToTerminalPanel();
-            } else {
-                switchToOutputPanel();
+                // Toggle views based on title or data-view
+                const title = item.getAttribute('title') || '';
+                const sidebar = document.querySelector('.sidebar');
+                if (title.includes('Explorer')) {
+                    if (sidebar) sidebar.style.display = 'flex';
+                } else {
+                    // Hide sidebar for other views (search, source control, etc.)
+                    if (sidebar) sidebar.style.display = 'none';
+                }
             }
         });
     });
 
-    // Clear terminal
-    document.getElementById('clear-terminal-btn').addEventListener('click', () => {
-        const activePanel = document.querySelector('.terminal-tab.active').dataset.tab;
-        if (activePanel === 'terminal') {
-            terminal.clear();
-        } else {
-            document.getElementById('output').innerHTML = '<div class="prompt">Output cleared.</div>';
-        }
-    });
+    // Panel Tabs
+    document.querySelectorAll('.panel-tabs li').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.panel-tabs li').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
 
-    // New terminal instance
-    document.getElementById('new-terminal-btn').addEventListener('click', () => {
-        // Reinitialize terminal
-        terminal.clear();
-        socket.emit('create-terminal', { sessionId });
-    });
+            const target = tab.dataset.tab;
+            document.querySelectorAll('.panel-content > div').forEach(div => div.classList.remove('active'));
 
-    // Language selector
-    document.getElementById('language-select').addEventListener('change', (e) => {
-        const lang = e.target.value;
-        if (editor) {
-            const langMap = {
-                python: 'python',
-                javascript: 'javascript',
-                c: 'c',
-                cpp: 'cpp',
-                bash: 'shell'
+            const map = {
+                'terminal': 'terminal',
+                'output': 'output',
+                'debug': 'output', // fallback
+                'problems': 'output' // fallback
             };
-            monaco.editor.setModelLanguage(editor.getModel(), langMap[lang] || 'plaintext');
-        }
-    });
 
-    // Resizer for terminal
-    const resizer = document.getElementById('resizer');
-    const terminalContainer = document.querySelector('.terminal-container');
-
-    resizer.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            fitAddon.fit();
+            const targetId = map[target];
+            if (targetId) {
+                const el = document.getElementById(targetId);
+                if (el) el.classList.add('active');
+                if (target === 'terminal' && fitAddon) fitAddon.fit();
+            }
         });
     });
 
-    function handleMouseMove(e) {
-        const h = window.innerHeight - e.clientY - 40;
-        if (h > 100 && h < window.innerHeight * 0.7) {
-            terminalContainer.style.height = `${h}px`;
+    // Panel Actions
+    const newTerminalBtn = document.querySelector('.panel-actions i[title="New Terminal"]');
+    if (newTerminalBtn) {
+        newTerminalBtn.addEventListener('click', () => {
+            terminal.clear();
+            socket.emit('create-terminal', { sessionId });
+        });
+    }
+
+    const closePanelBtn = document.querySelector('.panel-actions i[title="Close Panel"]');
+    if (closePanelBtn) {
+        closePanelBtn.addEventListener('click', () => {
+            const panel = document.querySelector('.panel-container');
+            if (panel) panel.style.display = 'none';
+        });
+    }
+
+    // Initialize Command Palette
+    initCommandPalette();
+}
+
+function initCommandPalette() {
+    const palette = document.getElementById('command-palette');
+    const input = document.getElementById('palette-input');
+    const results = document.getElementById('palette-results');
+
+    if (!palette || !input || !results) return;
+
+    // Define available commands
+    const commands = [
+        { id: 'new-file', label: 'New File', icon: 'fas fa-plus' },
+        { id: 'save-file', label: 'Save File', icon: 'fas fa-save' },
+        { id: 'run-code', label: 'Run Code', icon: 'fas fa-play' },
+        { id: 'clear-terminal', label: 'Clear Terminal', icon: 'fas fa-trash' },
+        { id: 'sidebar-toggle', label: 'Toggle Sidebar', icon: 'fas fa-columns' },
+        { id: 'open-terminal', label: 'Open Terminal', icon: 'fas fa-terminal' }
+    ];
+
+    function renderCommands(filter = '') {
+        results.innerHTML = '';
+        const filtered = commands.filter(c => c.label.toLowerCase().includes(filter.toLowerCase()));
+
+        filtered.forEach(cmd => {
+            const div = document.createElement('div');
+            div.className = 'palette-item';
+            div.innerHTML = `
+                <i class="${cmd.icon}" style="margin-right: 8px; width: 16px; text-align: center;"></i>
+                <span>${cmd.label}</span>
+            `;
+            div.addEventListener('click', () => {
+                executeCommand(cmd.id);
+                togglePalette();
+            });
+            results.appendChild(div);
+        });
+    }
+
+    // Toggle Palette with Cmd+Shift+P / Ctrl+Shift+P
+    window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') {
+            e.preventDefault();
+            togglePalette();
+        }
+        if (e.key === 'Escape' && palette.style.display !== 'none') {
+            togglePalette();
+        }
+    });
+
+    function togglePalette() {
+        const isHidden = palette.style.display === 'none';
+        palette.style.display = isHidden ? 'block' : 'none';
+
+        if (isHidden) {
+            input.value = '';
+            renderCommands();
+            input.focus();
+        } else {
+            if (editor) editor.focus();
+        }
+    }
+
+    input.addEventListener('input', (e) => {
+        renderCommands(e.target.value);
+    });
+
+    function executeCommand(id) {
+        switch (id) {
+            case 'new-file':
+                newFile();
+                break;
+            case 'save-file':
+                saveCurrentFile();
+                break;
+            case 'run-code':
+                runCode();
+                break;
+            case 'clear-terminal':
+                if (terminal) terminal.clear();
+                break;
+            case 'sidebar-toggle':
+                const sb = document.querySelector('.sidebar');
+                if (sb) sb.style.display = sb.style.display === 'none' ? 'flex' : 'none';
+                break;
+            case 'open-terminal':
+                const panel = document.querySelector('.panel-container');
+                if (panel) panel.style.display = 'flex';
+                document.querySelector('[data-tab="terminal"]').click();
+                break;
         }
     }
 }

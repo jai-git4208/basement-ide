@@ -9,104 +9,167 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fira+Code:wght@400;500&display=swap"
         rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 
     <!-- Xterm.js for Terminal -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
 </head>
 
 <body>
-    <div class="app-container">
-        <header class="navbar">
-            <div class="logo">
-                <span class="logo-icon">🏠</span>
-                <h1>Base<span>ment</span></h1>
+    <div class="workbench">
+        <!-- Activity Bar -->
+        <div class="activity-bar">
+            <div class="activity-top">
+                <div class="action-item active" title="Explorer (Cmd+Shift+E)">
+                    <i class="fas fa-copy"></i>
+                    <div class="badge"></div>
+                </div>
+                <div class="action-item" title="Search (Cmd+Shift+F)">
+                    <i class="fas fa-search"></i>
+                </div>
+                <div class="action-item" title="Source Control (Ctrl+Shift+G)">
+                    <i class="fas fa-code-branch"></i>
+                    <div class="badge" style="display:none">1</div>
+                </div>
+                <div class="action-item" title="Run and Debug (Cmd+Shift+D)">
+                    <i class="fas fa-play-circle"></i>
+                </div>
+                <div class="action-item" title="Extensions (Cmd+Shift+X)">
+                    <i class="fas fa-cubes"></i>
+                </div>
             </div>
-            <div class="actions">
-                <button id="new-file-btn" class="btn-secondary" title="New File">
-                    <span class="icon">📄</span> New File
-                </button>
-                <button id="save-file-btn" class="btn-secondary" title="Save (Cmd+S)">
-                    <span class="icon">💾</span> Save
-                </button>
-                <select id="language-select">
-                    <option value="python">Python</option>
-                    <option value="javascript">JavaScript / Node.js</option>
-                    <option value="c">C</option>
-                    <option value="cpp">C++</option>
-                    <option value="bash">Bash</option>
-                </select>
-                <button id="run-btn" class="btn-primary">
-                    <span class="icon">▶</span> Run
-                </button>
+            <div class="activity-bottom">
+                <div class="action-item" title="Accounts">
+                    <i class="fas fa-user-circle"></i>
+                </div>
+                <div class="action-item" title="Manage">
+                    <i class="fas fa-cog"></i>
+                </div>
             </div>
-        </header>
+        </div>
 
-        <main class="workspace">
-            <!-- File Explorer -->
-            <aside class="file-explorer">
-                <div class="explorer-header">
-                    <h3>Files</h3>
-                    <button id="refresh-files-btn" title="Refresh">🔄</button>
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-title">
+                <span>EXPLORER</span>
+                <div class="title-actions">
+                    <i class="fas fa-ellipsis-h"></i>
+                </div>
+            </div>
+            <div class="sidebar-content">
+                <div class="section-header expanded">
+                    <i class="fas fa-chevron-down"></i>
+                    <span>BASEMENT</span>
                 </div>
                 <div id="file-tree" class="file-tree">
-                    <div class="empty-state">No files yet. Create one to get started!</div>
-                </div>
-            </aside>
-
-            <!-- Editor and Terminal -->
-            <div class="editor-shell">
-                <!-- Tabs -->
-                <div class="tabs-container">
-                    <div id="tabs" class="tabs">
-                        <div class="tab active" data-file="scratch.py">
-                            <span class="tab-name">scratch.py</span>
-                            <button class="tab-close">×</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Editor -->
-                <div id="editor-container"></div>
-
-                <!-- Resizer -->
-                <div class="resizer" id="resizer"></div>
-
-                <!-- Terminal -->
-                <div class="terminal-container">
-                    <div class="terminal-header">
-                        <div class="terminal-tabs">
-                            <button class="terminal-tab active" data-tab="terminal">
-                                <span>Terminal</span>
-                            </button>
-                            <button class="terminal-tab" data-tab="output">
-                                <span>Output</span>
-                            </button>
-                        </div>
-                        <div class="terminal-actions">
-                            <button id="clear-terminal-btn" title="Clear">🗑️</button>
-                            <button id="new-terminal-btn" title="New Terminal">➕</button>
-                        </div>
-                    </div>
-                    <div class="terminal-content">
-                        <div id="terminal" class="terminal-panel active"></div>
-                        <div id="output" class="output-panel">
-                            <div class="prompt">Ready to execute code...</div>
-                        </div>
-                    </div>
+                    <!-- Files will be injected here -->
                 </div>
             </div>
-        </main>
+        </div>
+
+        <!-- Editor Area -->
+        <div class="editor-group-container">
+            <!-- Tabs -->
+            <div class="editors-header">
+                <div id="tabs" class="tabs-container">
+                    <!-- Tabs go here -->
+                </div>
+                <div class="editor-actions">
+                    <i class="fas fa-play" id="run-btn" title="Run Code"></i>
+                    <i class="fas fa-columns"></i>
+                    <i class="fas fa-ellipsis-v"></i>
+                </div>
+            </div>
+
+            <!-- Breadcrumbs -->
+            <div class="breadcrumbs">
+                <div class="breadcrumb-item">
+                    <i class="fas fa-folder"></i>
+                    <span>basement</span>
+                </div>
+                <i class="fas fa-chevron-right separator"></i>
+                <div class="breadcrumb-item">
+                    <i id="breadcrumb-icon" class="fas fa-file"></i>
+                    <span id="breadcrumb-filename">scratch.py</span>
+                </div>
+            </div>
+
+            <!-- Monaco Editor -->
+            <div id="editor-container" class="monaco-container"></div>
+        </div>
     </div>
 
-    <!-- Monaco Editor -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+    <!-- Panel (Terminal, Output) -->
+    <div class="panel-container">
+        <div class="panel-header">
+            <ul class="panel-tabs">
+                <li class="active" data-tab="terminal">TERMINAL</li>
+                <li data-tab="output">OUTPUT</li>
+                <li data-tab="problems">PROBLEMS</li>
+                <li data-tab="debug">DEBUG CONSOLE</li>
+            </ul>
+            <div class="panel-actions">
+                <i class="fas fa-plus" title="New Terminal"></i>
+                <i class="fas fa-trash-alt" id="clear-terminal-btn" title="Kill Terminal"></i>
+                <i class="fas fa-chevron-up" title="Maximize Panel"></i>
+                <i class="fas fa-times" title="Close Panel"></i>
+            </div>
+        </div>
+        <div class="panel-content">
+            <div id="terminal" class="terminal-view active"></div>
+            <div id="output" class="output-view">
+                <div class="output-line prompt">Ready to execute...</div>
+            </div>
+        </div>
+    </div>
 
-    <!-- Xterm.js -->
+    <!-- Status Bar -->
+    <footer class="status-bar">
+        <div class="status-left">
+            <div class="status-item remote-indicator">
+                <i class="fas fa-terminal"></i>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-code-branch"></i>
+                <span>main*</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-sync-alt"></i>
+            </div>
+            <div class="status-item error">
+                <i class="fas fa-times-circle"></i> 0
+                <i class="fas fa-exclamation-triangle"></i> 0
+            </div>
+        </div>
+        <div class="status-right">
+            <div class="status-item" id="cursor-position">Ln 1, Col 1</div>
+            <div class="status-item">Spaces: 4</div>
+            <div class="status-item">UTF-8</div>
+            <div class="status-item">LF</div>
+            <div class="status-item" id="lang-status">Python</div>
+            <div class="status-item">
+                <i class="fas fa-bell"></i>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Command Palette Overlay -->
+    <div id="command-palette" class="quick-input-widget" style="display: none;">
+        <div class="quick-input-header">
+            <input type="text" class="quick-input-box" id="palette-input" placeholder="> Type a command...">
+        </div>
+        <div class="quick-input-list" id="palette-results">
+            <!-- Results -->
+        </div>
+    </div>
+
+    <!-- Load non-AMD libraries first -->
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 
-    <!-- Socket.io -->
-    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <!-- Monaco Editor Loader (AMD) - Load last before our script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
 
     <!-- App Script -->
     <script src="main.js"></script>

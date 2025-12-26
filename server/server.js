@@ -39,6 +39,38 @@ app.use(express.static(path.join(PROJECT_ROOT, 'client')));
 const terminals = {};
 const terminalLogs = {};
 
+// Fallback class for when node-pty fails
+const { spawn: spawnCP } = require('child_process');
+
+class SpawnFallback {
+    constructor(shell, args, options) {
+        this.process = spawnCP(shell, args, {
+            ...options,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+        this.pid = this.process.pid;
+    }
+
+    on(event, callback) {
+        if (event === 'data') {
+            this.process.stdout.on('data', callback);
+            this.process.stderr.on('data', callback);
+        } else if (event === 'exit') {
+            this.process.on('close', callback);
+        }
+    }
+
+    write(data) {
+        this.process.stdin.write(data);
+    }
+
+    resize() { /* no-op */ }
+
+    kill() {
+        this.process.kill();
+    }
+}
+
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
@@ -57,15 +89,40 @@ io.on('connection', (socket) => {
             fs.mkdirSync(workspaceDir, { recursive: true });
         }
 
-        // Spawn a shell
-        const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
-        const term = pty.spawn(shell, [], {
-            name: 'xterm-color',
-            cols: 80,
-            rows: 30,
-            cwd: workspaceDir,
-            env: process.env
-        });
+        // Determine shell path safely
+        let shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
+
+        // Verify shell exists, fallback to standard locations
+        if (!fs.existsSync(shell)) {
+            shell = process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
+            if (!fs.existsSync(shell)) shell = '/bin/sh'; // absolute fallback
+        }
+
+        let term;
+        try {
+            console.log(`[DEBUG] Attempting pty.spawn with ${shell}`);
+            term = pty.spawn(shell, [], {
+                name: 'xterm-256color',
+                cols: 80,
+                rows: 30,
+                cwd: workspaceDir,
+                env: process.env // Pass full env for native-like behavior
+            });
+            console.log(`[DEBUG] pty.spawn success`);
+        } catch (ptyErr) {
+            console.error(`[WARN] node-pty failed: ${ptyErr.message}. Falling back to child_process.spawn.`);
+            try {
+                term = new SpawnFallback(shell, [], {
+                    cwd: workspaceDir,
+                    env: process.env
+                });
+                socket.emit('terminal-output', '\r\n\x1b[33m[WARNING] Native terminal support failed. Using basic fallback shell.\x1b[0m\r\n');
+            } catch (spawnErr) {
+                console.error('[FATAL] Fallback spawn failed:', spawnErr);
+                socket.emit('terminal-output', `\r\nError: Failed to spawn terminal: ${spawnErr.message}\r\n`);
+                return;
+            }
+        }
 
         terminals[termId] = term;
         terminalLogs[termId] = '';
@@ -75,7 +132,8 @@ io.on('connection', (socket) => {
             socket.emit('terminal-output', data);
         });
 
-        term.on('exit', () => {
+        term.on('exit', (code) => {
+            console.log(`[DEBUG] Terminal exited (Code: ${code})`);
             delete terminals[termId];
             socket.emit('terminal-exit');
         });
@@ -235,10 +293,11 @@ app.delete('/api/files/delete', (req, res) => {
 // --- Code Execution API ---
 
 function findInterpreter(lang) {
+    // 1. Check explicit paths
     const interpreters = {
         python: ['/usr/bin/python3', '/usr/local/bin/python3', '/opt/homebrew/bin/python3'],
         javascript: ['/usr/local/bin/node', '/opt/homebrew/bin/node', '/usr/bin/node'],
-        bash: ['/bin/bash'],
+        bash: ['/bin/bash', '/bin/sh'],
         sh: ['/bin/sh']
     };
 
@@ -246,7 +305,16 @@ function findInterpreter(lang) {
     for (const p of paths) {
         if (fs.existsSync(p)) return p;
     }
-    return null;
+
+    // 2. Fallback to just the command name (relying on system PATH)
+    const defaults = {
+        python: 'python3',
+        javascript: 'node',
+        bash: 'bash',
+        sh: 'sh'
+    };
+
+    return defaults[lang] || null;
 }
 
 app.post('/api/execute', (req, res) => {
